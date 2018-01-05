@@ -1,0 +1,147 @@
+---
+title: "Practical Machine Learning - Project Assignment"
+author: "Nicholas Ramskill"
+date: "4th January 2018"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+library(caret)
+library(rpart)
+library(randomForest)
+library(corrplot)
+library(reshape2, ggplot)
+```
+
+# Introduction
+
+The analysis presented herein is based on the data acquired by Velloso et al., (2013). The objective of the study was to obtain motion data from on-body sensors during a particular exercise movement. 
+
+Specifically, six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+The objective of this work is to predict the manner in which the participant in the trial performed the dumbell exercise based on the motion data collected from sensors attached the the participants' body and the dumbell. In the present work, three different machine learning methods have been tested in order to determine which can most accurately predict the outcome based on the data.
+
+The data for this analysis can be found at http://groupware.les.inf.puc-rio.br/har. 
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. “Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human ’13)”. Stuttgart, Germany: ACM SIGCHI, 2013. 
+
+# Loading and Cleaning the Data
+
+The training and testing data is read into R as follows: 
+
+```{r Loading}
+urlTrain <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+urlTest <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+training <- read.csv(urlTrain, na.strings=c("NA",""), header=TRUE)
+testing <- read.csv(urlTest, na.strings=c("NA",""), header=TRUE)
+dim(training); dim(testing)
+```
+
+Now that the data has been loaded into R, the next step is to disgard any of the variables that contain NA values. Further to this, the first seven variables have also been removed from the data as they are identification fields and therefore provide no benefit to the purposes of modelling. 
+
+```{r Cleaning}
+na_count <- data.frame(sapply(training, function(y) sum(length(which(is.na(y))))))
+colnames(na_count) <- c("Count")
+na_rm <- na_count$Count == 0
+
+training <- training[, na_rm]
+training <- training[, 8:length(colnames(training))]
+testing <- testing[, na_rm]
+testing <- testing[, 8:length(colnames(testing))]
+dim(testing); dim(training)
+```
+
+In order to determine the out-of-sample error rate for the different methods, the original training set has been further divided into a training set (75 %) and a testing set (25 %).
+
+```{r Train-Test Divide}
+inTrain <- createDataPartition(y=training$classe,
+                               p = 0.75, list = FALSE)
+training_sub <- training[inTrain,]
+testing_sub <- training[-inTrain,]
+dim(training_sub); dim(testing_sub)
+```
+
+# Predicting the Exercise Quality 
+
+In order to accurately predict the quality of the exercise based on the sensor motion data, three machine learning algorithms have been tested in the present study: Decision Trees, Random Forest and Generalized Boosted Models. These algorithms have been chosen given their suitability to multiclass regression problems such as this. 
+
+The most accurate model, as quantified by the out-of-sample test accuracy is subsequently chosen to predict the exercise quality class for the original test data. 
+
+## Decision Tree
+
+The accuracy and the confusion matrix for the predictions are shown below:
+
+```{r Decision Tree}
+set.seed(1987)
+mod_DT <- rpart(classe ~ ., data = training_sub, method = "class")
+pred_DT <- predict(mod_DT, testing_sub, type = "class")
+cm_DT <- confusionMatrix(pred_DT, testing_sub$classe)
+tab_DT <- cm_DT$table
+acc_DT <- cm_DT$overall['Accuracy']
+acc_DT
+```
+
+```{r Fig1, fig.width=12, fig.height=6, echo=FALSE, message=FALSE, warning=FALSE, error=FALSE}
+cm=melt(tab_DT)
+ggplot(cm, aes(Prediction, Reference)) + 
+        geom_tile(aes(fill = value)) +
+        geom_text(aes(fill = cm$value, label = round(cm$value, 2))) 
+```
+
+## Random Forest
+
+The accuracy and the confusion matrix for the predictions are shown below:
+
+```{r Random Forest}
+set.seed(1987)
+controlRF <- trainControl(method="cv", number=3, verboseIter=FALSE)
+mod_RF <- train(classe ~ ., data = training_sub, method = "rf", trControl = controlRF)
+pred_RF <- predict(mod_RF, testing_sub)
+cm_RF <- confusionMatrix(pred_RF, testing_sub$classe)
+tab_RF <- cm_RF$table
+acc_RF <- cm_RF$overall['Accuracy']
+acc_RF
+```
+
+```{r Fig2, fig.width=12, fig.height=6, echo=FALSE, message=FALSE, warning=FALSE, error=FALSE}
+cm=melt(tab_RF)
+ggplot(cm, aes(Prediction, Reference)) + 
+        geom_tile(aes(fill = value)) +
+        geom_text(aes(fill = cm$value, label = round(cm$value, 2)))  
+```
+
+## Generalized Boosting Model
+
+The accuracy and the confusion matrix for the predictions are shown below:
+
+```{r GBM}
+set.seed(1987)
+controlGBM <- trainControl(method = "repeatedcv", number = 5, repeats = 1, verboseIter=FALSE)
+mod_GBM <- train(classe ~ ., data = training_sub, method = "gbm", trControl = controlGBM, verbose = FALSE)
+pred_GBM <- predict(mod_GBM, testing_sub)
+cm_GBM <- confusionMatrix(pred_GBM, testing_sub$classe)
+tab_GBM <- cm_GBM$table
+acc_GBM <- cm_GBM$overall['Accuracy']
+acc_GBM
+```
+
+```{r Fig3, fig.width=12, fig.height=6, echo=FALSE, message=FALSE, warning=FALSE, error=FALSE}
+cm=melt(tab_GBM)
+ggplot(cm, aes(Prediction, Reference)) + 
+        geom_tile(aes(fill = value)) +
+        geom_text(aes(fill = cm$value, label = round(cm$value, 2)))  
+```
+
+Based on this analysis, it has been determined that the Random Forest method has the lowest out-of-sample error with a rate of 99.3 %, compared to that of the Decision Tree and GBM methods. The Random Forest method will therefore be used for the prediction of the outcome based on the testing set. 
+
+## Prediction of the Test Data Set
+
+```{r Test Set}
+pred_test <- predict(mod_RF, testing)
+pred_test
+```
